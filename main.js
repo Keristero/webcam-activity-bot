@@ -5,12 +5,15 @@ const PNG = require('pngjs').PNG;
 const { createCanvas, loadImage } = require('canvas')
 const { Client, GatewayIntentBits,AttachmentBuilder,EmbedBuilder } = require('discord.js');
 const environment = require('./environment')
+let debug_mode = true
 
 const url = `http://server.quotro.net:2583/`
 const out_folder = './out'
 const fs = require('fs')
 const token = environment.DISCORD_TOKEN
 const channelId = '272616531295469568';
+const activity_timeout_frames = 30; //after thirty frames without movement, activity ends
+const activity_snapshot_interval = 30
 const client = new Client({
     intents: [
         GatewayIntentBits.Guilds, 
@@ -36,14 +39,21 @@ client.login(token);
 
 let previous_frame = null
 let frame_no = 0
-let record_time = 0
+let frames_since_movement = Infinity; //frames since last movement
+let frames_active = 0 //sum of frames in current activity
 
-function sendDiscordMessage(imagebuffer){
+function sendDiscordMessage(filepath,embed_title){
     try{
-        const file = new AttachmentBuilder(imagebuffer);
+        let fileName = filepath.split('\\')[1]
+        const file = new AttachmentBuilder(`.\\${filepath}`);
         const embed = new EmbedBuilder()
-        .setTitle('Movement Detected')
-        channel.send({embeds:[embed],files:[file]});
+        .setTitle(embed_title)
+        .setImage(`attachment://${fileName}`)
+        console.log(filepath,fileName)
+        if(debug_mode){
+            embed.setDescription('this one is just a test')
+        }
+        channel.send({ embeds: [embed], files: [file] });
     }catch(e){
         console.log('failed to send discord image',e)
     }
@@ -81,17 +91,17 @@ function differenceIsGreaterThanThreshold(current_image,previous_image,threshold
     return false
 }
 
-function saveFrame(image, frame_no, output_folder) {
+function saveFrame(image, output_folder) {
     return new Promise((resolve, reject) => {
         let new_png = new PNG({
             width: image.width,
             height: image.height
         });
         new_png.data = image.data;
-        let file_name = generateFilenameWithTimestamp('arthur','.png')
+        let file_name = generateFilenameWithTimestamp('arthur','png')
         let new_file_path = path.join(output_folder, file_name)
         new_png.pack().pipe(fs.createWriteStream(new_file_path)).on("finish", function () {
-            resolve()
+            resolve(new_file_path,file_name)
         });
     })
 }
@@ -102,23 +112,53 @@ async function watchVideoStream(url) {
     const page = await browser.newPage();
 
     // Navigate to the webpage with the video stream
+    await page.setViewport({
+        width: 675,
+        height: 550,
+        deviceScaleFactor: 1,
+    });
     await page.goto(url);
 
     // Main loop to capture frames and check for movement
     while (true) {
         // Capture the current frame
         const frame = await page.screenshot({ encoding: 'base64' });
-        
-        // Convert the base64-encoded frame to a Mat object (OpenCV.js)
         const buffer = Buffer.from(frame, 'base64');
         let frame_png = PNG.sync.read(buffer);
 
         // Check for movement
         if (detectMovement(frame_png)) {
             console.log('Movement detected!');
-            saveFrame(frame,frame_no++,out_folder)
-            sendDiscordMessage(buffer)
+            frames_since_movement = 0
+            if(frames_active == 0){
+                //activity started
+                saveFrame(frame_png,out_folder).then((filepath)=>{
+                    sendDiscordMessage(filepath,"Movement detected!")
+                })
+            }
             // Perform any action when movement is detected
+        }else{
+            frames_since_movement++
+        }
+        if(frames_since_movement < activity_timeout_frames){
+            //activity active
+            console.log('Activty active');
+            frames_active++
+            if(frames_active % activity_snapshot_interval == 0){
+                saveFrame(frame_png,out_folder).then((filepath)=>{
+                    sendDiscordMessage(filepath,"Continued activity...")
+                })
+            }
+        }
+        if(frames_since_movement > activity_timeout_frames && frames_active > 0){
+            //activity finished
+            console.log('Activty finished');
+            frames_active = 0
+            if(frames_active % activity_snapshot_interval == 0){
+                saveFrame(frame_png,out_folder).then((filepath)=>{
+                    sendDiscordMessage(filepath,"Activty ended.")
+                })
+            }
         }
         previous_frame = frame_png
 
