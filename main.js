@@ -5,15 +5,29 @@ const PNG = require('pngjs').PNG;
 const { createCanvas, loadImage } = require('canvas')
 const { Client, GatewayIntentBits,AttachmentBuilder,EmbedBuilder } = require('discord.js');
 const environment = require('./environment')
-let debug_mode = true
+const GIFEncoder = require('gifencoder')
+let debug_mode = false
 
 const url = `http://server.quotro.net:2583/`
 const out_folder = './out'
 const fs = require('fs')
 const token = environment.DISCORD_TOKEN
-const channelId = '272616531295469568';
-const activity_timeout_frames = 30; //after thirty frames without movement, activity ends
-const activity_snapshot_interval = 30
+let channelId = '272616531295469568';
+let debugChannelId = `318957513032728577`
+if(debug_mode){
+    channelId = debugChannelId;
+}
+const activity_timeout_frames = 10; //15 is good
+const maximum_activity_length = 60; //max gif length, 45 is good
+const pixels_changed_threshold = 40;//40 seems best so far
+const window_width = 675;
+const window_height = 550;
+const gif_framerate = 5;
+const crop_width = 640;
+const crop_height = 480;
+const crop_x = 18;
+const crop_y = 62;
+const crop_scale = 0.5;
 const client = new Client({
     intents: [
         GatewayIntentBits.Guilds, 
@@ -38,9 +52,64 @@ client.login(token);
 
 
 let previous_frame = null
-let frame_no = 0
 let frames_since_movement = Infinity; //frames since last movement
 let frames_active = 0 //sum of frames in current activity
+let page;
+var encoder;
+let recording_gif_path = false
+let frame_ms = 1000/gif_framerate
+
+const canvas_cropped = createCanvas(crop_width*crop_scale, crop_height*crop_scale);
+const ctx_cropped = canvas_cropped.getContext('2d');
+
+
+function sleep(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+  }
+
+async function recordLoop(){
+    const startTime = performance.now();
+  
+    if(recording_gif_path){
+        console.log('gif frame')
+        const frame = await page.screenshot({ encoding: 'base64' });
+        const buffer = Buffer.from(frame, 'base64');
+        let frame_png = await loadImage(buffer)
+        ctx_cropped.drawImage(frame_png, crop_x, crop_y, crop_width, crop_height,0,0,canvas_cropped.width,canvas_cropped.height)
+        //encoder.addFrame(ctx);
+        encoder.addFrame(ctx_cropped);
+    }
+
+    const endTime = performance.now();
+    const elapsedTime = endTime - startTime;
+    await sleep(Math.max(0,frame_ms-elapsedTime)); // frame ms
+    return recordLoop()
+}
+
+function startRecording(){
+    if(recording_gif_path){
+        return
+    }
+    let file_name = generateFilenameWithTimestamp('arthur','gif')
+    recording_gif_path = path.join(out_folder, file_name)
+    encoder = new GIFEncoder(canvas_cropped.width, canvas_cropped.height)
+    encoder.createReadStream().pipe(fs.createWriteStream(recording_gif_path))
+    encoder.start()
+    encoder.setRepeat(-1) // 0 for repeat, -1 for no-repeat
+    encoder.setDelay(frame_ms) // frame delay in ms
+    encoder.setQuality(-10) // image quality. 10 is default.
+}
+
+function stopRecording(){
+    if(!recording_gif_path){
+        return
+    }
+    console.log('gif finished')
+    encoder.finish();
+    let path = recording_gif_path
+    recording_gif_path = false
+    return path
+}
 
 function sendDiscordMessage(filepath,embed_title){
     try{
@@ -61,15 +130,9 @@ function sendDiscordMessage(filepath,embed_title){
 
 // Function to analyze frames for movement
 function detectMovement(frame) {
-    // Add your computer vision logic here
-    // For example, you can use OpenCV.js to detect changes in the frame
-    // and determine if there is movement.
-    // Refer to OpenCV.js documentation for more details: https://docs.opencv.org/master/d5/d10/tutorial_js_root.html
-    // You might use functions like cv.absdiff, cv.cvtColor, cv.threshold, etc.
-    // Return true if movement is detected, false otherwise.
     console.log('frame')
     if(previous_frame){
-        if(differenceIsGreaterThanThreshold(previous_frame,frame,0.8,1000)){
+        if(differenceIsGreaterThanThreshold(previous_frame,frame,0.8,pixels_changed_threshold)){
             return true
         }
     }
@@ -91,7 +154,7 @@ function differenceIsGreaterThanThreshold(current_image,previous_image,threshold
     return false
 }
 
-function saveFrame(image, output_folder) {
+function saveFrame(image, out_folder) {
     return new Promise((resolve, reject) => {
         let new_png = new PNG({
             width: image.width,
@@ -99,7 +162,7 @@ function saveFrame(image, output_folder) {
         });
         new_png.data = image.data;
         let file_name = generateFilenameWithTimestamp('arthur','png')
-        let new_file_path = path.join(output_folder, file_name)
+        let new_file_path = path.join(out_folder, file_name)
         new_png.pack().pipe(fs.createWriteStream(new_file_path)).on("finish", function () {
             resolve(new_file_path,file_name)
         });
@@ -109,12 +172,12 @@ function saveFrame(image, output_folder) {
 // Main function to watch the video stream
 async function watchVideoStream(url) {
     const browser = await puppeteer.launch();
-    const page = await browser.newPage();
+    page = await browser.newPage();
 
     // Navigate to the webpage with the video stream
     await page.setViewport({
-        width: 675,
-        height: 550,
+        width: window_width,
+        height: window_height,
         deviceScaleFactor: 1,
     });
     await page.goto(url);
@@ -135,6 +198,7 @@ async function watchVideoStream(url) {
                 saveFrame(frame_png,out_folder).then((filepath)=>{
                     sendDiscordMessage(filepath,"Movement detected!")
                 })
+                startRecording()
             }
             // Perform any action when movement is detected
         }else{
@@ -144,26 +208,17 @@ async function watchVideoStream(url) {
             //activity active
             console.log('Activty active');
             frames_active++
-            if(frames_active % activity_snapshot_interval == 0){
-                saveFrame(frame_png,out_folder).then((filepath)=>{
-                    sendDiscordMessage(filepath,"Continued activity...")
-                })
-            }
         }
-        if(frames_since_movement > activity_timeout_frames && frames_active > 0){
+        if((frames_since_movement > activity_timeout_frames && frames_active > 0) || frames_active == maximum_activity_length){
             //activity finished
-            console.log('Activty finished');
+            console.log('Activty summary:');
             frames_active = 0
-            if(frames_active % activity_snapshot_interval == 0){
-                saveFrame(frame_png,out_folder).then((filepath)=>{
-                    sendDiscordMessage(filepath,"Activty ended.")
-                })
-            }
+            let gif_path = stopRecording()
+            sendDiscordMessage(gif_path,"Activty summary:")
         }
         previous_frame = frame_png
 
-        // You might want to introduce a delay to control the frame capture rate
-        await page.waitForTimeout(1000); // 1 second delay
+        await sleep(1000); // 1 second delay
     }
 
     // Close the browser when done
@@ -172,3 +227,4 @@ async function watchVideoStream(url) {
 
 // Start watching the video stream
 watchVideoStream(url);
+recordLoop();
