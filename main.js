@@ -4,19 +4,15 @@ const pixelmatch = require('pixelmatch')
 const PNG = require('pngjs').PNG;
 const { createCanvas, loadImage } = require('canvas')
 const { Client, GatewayIntentBits,AttachmentBuilder,EmbedBuilder } = require('discord.js');
-const environment = require('./environment')
+const {OUT_FOLDER,DISCORD_TOKEN,CHANNEL_ID,DEBUG_CHANNEL_ID,WEBSITE_URL,DEBUG_MODE} = require('./environment')
 const GIFEncoder = require('gifencoder')
-let debug_mode = false
-
-const url = `http://server.quotro.net:2583/`
-const out_folder = './out'
 const fs = require('fs')
-const token = environment.DISCORD_TOKEN
-let channelId = '272616531295469568';
-let debugChannelId = `318957513032728577`
-if(debug_mode){
-    channelId = debugChannelId;
+
+if(DEBUG_MODE){
+    CHANNEL_ID = DEBUG_CHANNEL_ID;
 }
+
+
 const activity_timeout_frames = 10; //15 is good
 const maximum_activity_length = 60; //max gif length, 45 is good
 const pixels_changed_threshold = 40;//40 seems best so far
@@ -40,15 +36,15 @@ const client = new Client({
 let channel;
 client.once('ready', () => {
     console.log('Bot is ready!');
-    channel = client.channels.cache.get(channelId);
+    channel = client.channels.cache.get(CHANNEL_ID);
     if (channel) {
         console.log(`Channel found: ${channel.name} (${channel.id})`);
     } else {
-        console.log(`Channel with ID ${channelId} not found.`);
+        console.log(`Channel with ID ${CHANNEL_ID} not found.`);
     }
 });
 
-client.login(token);
+client.login(DISCORD_TOKEN);
 
 
 let previous_frame = null
@@ -91,7 +87,7 @@ function startRecording(){
         return
     }
     let file_name = generateFilenameWithTimestamp('arthur','gif')
-    recording_gif_path = path.join(out_folder, file_name)
+    recording_gif_path = path.join(OUT_FOLDER, file_name)
     encoder = new GIFEncoder(canvas_cropped.width, canvas_cropped.height)
     encoder.createReadStream().pipe(fs.createWriteStream(recording_gif_path))
     encoder.start()
@@ -119,7 +115,7 @@ function sendDiscordMessage(filepath,embed_title){
         .setTitle(embed_title)
         .setImage(`attachment://${fileName}`)
         console.log(filepath,fileName)
-        if(debug_mode){
+        if(DEBUG_MODE){
             embed.setDescription('this one is just a test')
         }
         channel.send({ embeds: [embed], files: [file] });
@@ -195,7 +191,7 @@ async function watchVideoStream(url) {
             frames_since_movement = 0
             if(frames_active == 0){
                 //activity started
-                saveFrame(frame_png,out_folder).then((filepath)=>{
+                saveFrame(frame_png,OUT_FOLDER).then((filepath)=>{
                     sendDiscordMessage(filepath,"Movement detected!")
                 })
                 startRecording()
@@ -226,5 +222,5 @@ async function watchVideoStream(url) {
 }
 
 // Start watching the video stream
-watchVideoStream(url);
+watchVideoStream(WEBSITE_URL);
 recordLoop();
