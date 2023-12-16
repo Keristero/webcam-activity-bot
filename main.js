@@ -1,17 +1,14 @@
-const puppeteer = require('puppeteer');
-const path = require('path')
-const pixelmatch = require('pixelmatch')
-const PNG = require('pngjs').PNG;
-const { createCanvas, loadImage } = require('canvas')
-const { Client, GatewayIntentBits,AttachmentBuilder,EmbedBuilder } = require('discord.js');
-const {OUT_FOLDER,DISCORD_TOKEN,CHANNEL_ID,DEBUG_CHANNEL_ID,WEBSITE_URL,DEBUG_MODE} = require('./environment')
-const GIFEncoder = require('gifencoder')
-const fs = require('fs')
-
-if(DEBUG_MODE){
-    CHANNEL_ID = DEBUG_CHANNEL_ID;
-}
-
+import puppeteer from 'puppeteer'
+import path from 'path'
+import pixelmatch from 'pixelmatch'
+import {PNG} from 'pngjs'
+import { createCanvas, loadImage } from 'canvas'
+import { Client, GatewayIntentBits,AttachmentBuilder,EmbedBuilder } from 'discord.js'
+import {OUT_FOLDER,DISCORD_TOKEN,CHANNEL_ID,DEBUG_CHANNEL_ID,WEBSITE_URL,DEBUG_MODE} from './environment.js'
+import gifencoderpkg from 'gifencoder';
+const {GIFEncoder} = gifencoderpkg;
+import 'fs'
+import {command_objects} from './deploy-commands.js'
 
 const activity_timeout_frames = 10; //15 is good
 const maximum_activity_length = 60; //max gif length, 45 is good
@@ -41,6 +38,23 @@ client.once('ready', () => {
         console.log(`Channel found: ${channel.name} (${channel.id})`);
     } else {
         console.log(`Channel with ID ${CHANNEL_ID} not found.`);
+    }
+});
+
+client.on('interactionCreate', async interaction => {
+    if (!interaction.isCommand()) return;
+
+    const { commandName } = interaction;
+
+    try {
+        // Check for the command and call the corresponding execute function
+        if (command_objects[commandName]) {
+            await command_objects[commandName].execute(interaction);
+        }
+        // Add more command checks if you have other commands
+
+    } catch (error) {
+        console.error(`Error handling ${commandName} command: ${error.message}`);
     }
 });
 

@@ -1,6 +1,8 @@
 # purpose
 Discord bot which watches a website every second and compares the number of visually changed pixels (activity), when it exceeds a threshhold it notifies your channel with a screenshot, and records a gif of the activity - which is sent once the activity is finished.
 
+Also supports scaring cats with `/spook` via connected speaker.
+
 # How to use
 ...dont
 This is very hardcoded for my use, it expects an environment.js

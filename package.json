@@ -1,5 +1,7 @@
 {
+  "type": "module",
   "dependencies": {
+    "audic": "^3.0.2",
     "canvas": "^2.11.2",
     "discord.js": "^14.14.1",
     "gifencoder": "^2.0.1",
