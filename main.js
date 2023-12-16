@@ -67,7 +67,6 @@ async function recordLoop(){
     const startTime = performance.now();
   
     if(recording_gif_path){
-        console.log('gif frame')
         const frame = await page.screenshot({ encoding: 'base64' });
         const buffer = Buffer.from(frame, 'base64');
         let frame_png = await loadImage(buffer)
@@ -100,7 +99,6 @@ function stopRecording(){
     if(!recording_gif_path){
         return
     }
-    console.log('gif finished')
     encoder.finish();
     let path = recording_gif_path
     recording_gif_path = false
@@ -126,7 +124,6 @@ function sendDiscordMessage(filepath,embed_title){
 
 // Function to analyze frames for movement
 function detectMovement(frame) {
-    console.log('frame')
     if(previous_frame){
         if(differenceIsGreaterThanThreshold(previous_frame,frame,0.8,pixels_changed_threshold)){
             return true
@@ -143,7 +140,7 @@ function generateFilenameWithTimestamp(filename, fileExtension) {
 function differenceIsGreaterThanThreshold(current_image,previous_image,threshold=0.1,pixel_threshold=1){
     const diff = new PNG({ width: current_image.width, height: current_image.height });
     const numDiffPixels = pixelmatch(previous_image.data, current_image.data, diff.data, current_image.width, current_image.height, { threshold: threshold });
-    console.log('pixels = ',numDiffPixels)
+    //console.log('pixels = ',numDiffPixels)
     if (numDiffPixels > pixel_threshold) {
         return true
     }
@@ -202,7 +199,6 @@ async function watchVideoStream(url) {
         }
         if(frames_since_movement < activity_timeout_frames){
             //activity active
-            console.log('Activty active');
             frames_active++
         }
         if((frames_since_movement > activity_timeout_frames && frames_active > 0) || frames_active == maximum_activity_length){
